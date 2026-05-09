@@ -97,7 +97,7 @@ class MainActivity : Activity() {
         toolbar.addView(logo)
 
         addressBar = EditText(this).apply {
-            singleLine = true
+            setSingleLine(true)
             hint = "Search or enter address"
             imeOptions = EditorInfo.IME_ACTION_GO
             inputType = android.text.InputType.TYPE_TEXT_VARIATION_URI
@@ -195,7 +195,7 @@ class MainActivity : Activity() {
         })
         val search = EditText(this).apply {
             hint = "Search with ${SearchEngine.byId(store.searchEngineId).label}"
-            singleLine = true
+            setSingleLine(true)
             imeOptions = EditorInfo.IME_ACTION_GO
             setTextColor(theme.text)
             setHintTextColor(theme.muted)

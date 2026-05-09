@@ -5,7 +5,7 @@ plugins {
 
 android {
     namespace = "com.kairo.browser"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.kairo.browser"
@@ -46,5 +46,5 @@ android {
 
 dependencies {
     implementation("org.mozilla.geckoview:geckoview:147.0.20260212191108")
-    implementation("androidx.core:core-ktx:1.15.0")
+    implementation("androidx.core:core-ktx:1.17.0")
 }

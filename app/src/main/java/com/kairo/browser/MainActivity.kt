@@ -18,8 +18,6 @@ import android.view.animation.DecelerateInterpolator
 import android.view.inputmethod.EditorInfo
 import android.widget.Button
 import android.widget.EditText
-import android.widget.FrameLayout
-import android.widget.HorizontalScrollView
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ProgressBar
@@ -48,13 +46,7 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         store = BrowserStore(this)
-        runtime = GeckoRuntime.create(
-            this,
-            GeckoRuntimeSettings.Builder()
-                .aboutConfigEnabled(true)
-                .remoteDebuggingEnabled(true)
-                .build()
-        )
+        runtime = GeckoRuntime.create(this, GeckoRuntimeSettings.Builder().build())
         session = GeckoSession()
         session.open(runtime)
         buildUi()
@@ -207,6 +199,7 @@ class MainActivity : Activity() {
     }
 
     private fun showExtensions() {
+        val theme = AppTheme.byId(store.themeId)
         val container = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(12))
@@ -215,10 +208,10 @@ class MainActivity : Activity() {
             val row = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
                 setPadding(dp(10))
-                background = rounded(AppTheme.byId(store.themeId).elevated, dp(12))
+                background = rounded(theme.elevated, dp(12))
             }
-            row.addView(TextView(this).apply { text = item.name; textSize = 16f; setTextColor(AppTheme.byId(store.themeId).text) })
-            row.addView(TextView(this).apply { text = item.summary; textSize = 13f; setTextColor(AppTheme.byId(store.themeId).muted) })
+            row.addView(TextView(this).apply { text = item.name; textSize = 16f; setTextColor(theme.text) })
+            row.addView(TextView(this).apply { text = item.summary; textSize = 13f; setTextColor(theme.muted) })
             row.addView(Button(this).apply {
                 text = "Install from Firefox Add-ons"
                 setOnClickListener { installExtension(item) }

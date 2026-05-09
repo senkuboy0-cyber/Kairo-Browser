@@ -18,6 +18,7 @@ import android.view.animation.DecelerateInterpolator
 import android.view.inputmethod.EditorInfo
 import android.widget.Button
 import android.widget.EditText
+import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ProgressBar
@@ -40,7 +41,9 @@ class MainActivity : Activity() {
     private lateinit var toolbar: LinearLayout
     private lateinit var addressBar: EditText
     private lateinit var progress: ProgressBar
+    private lateinit var contentFrame: FrameLayout
     private lateinit var bottomBar: LinearLayout
+    private var panelView: View? = null
     private var currentUrl: String = ""
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -54,12 +57,24 @@ class MainActivity : Activity() {
         applyAppearance()
 
         val incoming = intent?.dataString
-        load(incoming ?: store.homePage)
+        if (incoming == null) {
+            showHomeScreen()
+        } else {
+            load(incoming)
+        }
     }
 
     override fun onDestroy() {
         session.close()
         super.onDestroy()
+    }
+
+    override fun onBackPressed() {
+        if (panelView != null) {
+            closePanel()
+        } else {
+            super.onBackPressed()
+        }
     }
 
     private fun buildUi() {
@@ -77,6 +92,7 @@ class MainActivity : Activity() {
         val logo = ImageView(this).apply {
             setImageResource(resources.getIdentifier("kairo_logo", "drawable", packageName))
             layoutParams = LinearLayout.LayoutParams(dp(38), dp(38))
+            setOnClickListener { showHomeScreen() }
         }
         toolbar.addView(logo)
 
@@ -86,7 +102,6 @@ class MainActivity : Activity() {
             imeOptions = EditorInfo.IME_ACTION_GO
             inputType = android.text.InputType.TYPE_TEXT_VARIATION_URI
             setPadding(dp(14), dp(8), dp(14), dp(8))
-            background = rounded(Color.TRANSPARENT, dp(24))
             layoutParams = LinearLayout.LayoutParams(0, dp(48), 1f).apply { marginStart = dp(8) }
             setOnEditorActionListener { _, actionId, event ->
                 val enter = event?.keyCode == KeyEvent.KEYCODE_ENTER && event.action == KeyEvent.ACTION_UP
@@ -107,9 +122,13 @@ class MainActivity : Activity() {
             layoutParams = LinearLayout.LayoutParams(-1, dp(3))
         }
 
-        geckoView = GeckoView(this).apply {
+        contentFrame = FrameLayout(this).apply {
             layoutParams = LinearLayout.LayoutParams(-1, 0, 1f)
         }
+        geckoView = GeckoView(this).apply {
+            layoutParams = FrameLayout.LayoutParams(-1, -1)
+        }
+        contentFrame.addView(geckoView)
 
         bottomBar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -120,27 +139,27 @@ class MainActivity : Activity() {
             "Back" to { session.goBack() },
             "Forward" to { session.goForward() },
             "Reload" to { session.reload() },
-            "Home" to { load(store.homePage) },
-            "Star" to { bookmarkCurrent() },
-            "Share" to { shareCurrent() }
+            "Home" to { showHomeScreen() },
+            "Saved" to { showBookmarksScreen() },
+            "Settings" to { showSettingsScreen() }
         ).forEach { (label, action) -> bottomBar.addView(navButton(label, action)) }
 
         root.addView(toolbar)
         root.addView(progress)
-        root.addView(geckoView)
+        root.addView(contentFrame)
         root.addView(bottomBar)
         setContentView(root)
     }
 
     private fun showMainMenu() {
         val actions = arrayOf(
-            "New tab",
-            "Search engine",
-            "Bookmarks",
-            "History",
-            "Extensions",
-            "Themes",
-            "Fonts",
+            "Home screen",
+            "Settings screen",
+            "Bookmarks screen",
+            "History screen",
+            "Extensions screen",
+            "Save bookmark",
+            "Share page",
             "Copy link",
             "Open externally",
             "Set current as home"
@@ -149,80 +168,188 @@ class MainActivity : Activity() {
             .setTitle("Kairo Browser")
             .setItems(actions) { _, which ->
                 when (which) {
-                    0 -> load(store.homePage)
-                    1 -> chooseSearchEngine()
-                    2 -> showUrlList("Bookmarks", store.bookmarks())
-                    3 -> showUrlList("History", store.history())
-                    4 -> showExtensions()
-                    5 -> chooseTheme()
-                    6 -> chooseFont()
+                    0 -> showHomeScreen()
+                    1 -> showSettingsScreen()
+                    2 -> showBookmarksScreen()
+                    3 -> showHistoryScreen()
+                    4 -> showExtensionsScreen()
+                    5 -> bookmarkCurrent()
+                    6 -> shareCurrent()
                     7 -> copyCurrent()
                     8 -> openExternally()
-                    9 -> { store.homePage = currentUrl; toast("Home page updated") }
+                    9 -> { store.homePage = currentUrl.ifBlank { store.homePage }; toast("Home page updated") }
                 }
             }
             .show()
     }
 
-    private fun chooseSearchEngine() {
-        val engines = SearchEngine.all
-        AlertDialog.Builder(this)
-            .setTitle("Search engine")
-            .setItems(engines.map { it.label }.toTypedArray()) { _, index ->
-                store.searchEngineId = engines[index].id
-                toast("Search uses ${engines[index].label}")
-            }
-            .show()
-    }
-
-    private fun chooseTheme() {
-        val themes = AppTheme.all
-        AlertDialog.Builder(this)
-            .setTitle("Theme")
-            .setItems(themes.map { it.name }.toTypedArray()) { _, index ->
-                store.themeId = themes[index].id
-                applyAppearance()
-            }
-            .show()
-    }
-
-    private fun chooseFont() {
-        val fonts = AppFont.all
-        AlertDialog.Builder(this)
-            .setTitle("Font")
-            .setItems(fonts.map { it.name }.toTypedArray()) { _, index ->
-                store.fontId = fonts[index].id
-                applyAppearance()
-                toast("Font applied")
-            }
-            .show()
-    }
-
-    private fun showExtensions() {
+    private fun showHomeScreen() {
         val theme = AppTheme.byId(store.themeId)
-        val container = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(12))
-        }
-        ExtensionCatalog.popular.forEach { item ->
-            val row = LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-                setPadding(dp(10))
-                background = rounded(theme.elevated, dp(12))
+        val panel = screen("Home")
+        panel.addView(TextView(this).apply {
+            text = "Kairo Browser"
+            textSize = 26f
+            setTextColor(theme.text)
+            gravity = Gravity.CENTER
+            typeface = Typeface.DEFAULT_BOLD
+        })
+        val search = EditText(this).apply {
+            hint = "Search with ${SearchEngine.byId(store.searchEngineId).label}"
+            singleLine = true
+            imeOptions = EditorInfo.IME_ACTION_GO
+            setTextColor(theme.text)
+            setHintTextColor(theme.muted)
+            setPadding(dp(16), dp(10), dp(16), dp(10))
+            background = rounded(theme.elevated, dp(24))
+            setOnEditorActionListener { _, actionId, event ->
+                val enter = event?.keyCode == KeyEvent.KEYCODE_ENTER && event.action == KeyEvent.ACTION_UP
+                if (actionId == EditorInfo.IME_ACTION_GO || enter) {
+                    loadFromInput(text.toString())
+                    true
+                } else false
             }
-            row.addView(TextView(this).apply { text = item.name; textSize = 16f; setTextColor(theme.text) })
-            row.addView(TextView(this).apply { text = item.summary; textSize = 13f; setTextColor(theme.muted) })
-            row.addView(Button(this).apply {
-                text = "Install from Firefox Add-ons"
-                setOnClickListener { installExtension(item) }
-            })
-            container.addView(row, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(8) })
         }
-        AlertDialog.Builder(this)
-            .setTitle("Extensions")
-            .setView(ScrollView(this).apply { addView(container) })
-            .setNegativeButton("Close", null)
-            .show()
+        panel.addView(search, LinearLayout.LayoutParams(-1, dp(52)).apply { topMargin = dp(18) })
+        val shortcuts = listOf(
+            "Google" to "https://www.google.com",
+            "YouTube" to "https://www.youtube.com",
+            "GitHub" to "https://github.com",
+            "News" to "https://news.google.com"
+        )
+        shortcuts.forEach { (label, url) -> panel.addView(rowButton(label, url) { load(url) }) }
+        panel.addView(sectionTitle("Recent"))
+        store.history().take(6).forEach { url -> panel.addView(rowButton(shortUrl(url), url) { load(url) }) }
+        showPanel(panel)
+    }
+
+    private fun showSettingsScreen() {
+        val theme = AppTheme.byId(store.themeId)
+        val panel = screen("Settings")
+        panel.addView(sectionTitle("Search engine"))
+        SearchEngine.all.forEach { engine ->
+            panel.addView(rowButton(engine.label, if (engine.id == store.searchEngineId) "Selected" else "Tap to select") {
+                store.searchEngineId = engine.id
+                showSettingsScreen()
+            })
+        }
+        panel.addView(sectionTitle("Theme"))
+        AppTheme.all.forEach { appTheme ->
+            panel.addView(rowButton(appTheme.name, if (appTheme.id == store.themeId) "Selected" else "Apply") {
+                store.themeId = appTheme.id
+                applyAppearance()
+                showSettingsScreen()
+            })
+        }
+        panel.addView(sectionTitle("Font"))
+        AppFont.all.forEach { font ->
+            panel.addView(rowButton(font.name, if (font.id == store.fontId) "Selected" else "Apply") {
+                store.fontId = font.id
+                applyAppearance()
+                showSettingsScreen()
+            })
+        }
+        panel.addView(sectionTitle("Browser tools"))
+        panel.addView(rowButton("Set current page as home", currentUrl.ifBlank { store.homePage }) {
+            store.homePage = currentUrl.ifBlank { store.homePage }
+            toast("Home page updated")
+        })
+        panel.addView(rowButton("Copy current link", currentUrl.ifBlank { "No page loaded" }) { copyCurrent() })
+        panel.setBackgroundColor(theme.background)
+        showPanel(panel)
+    }
+
+    private fun showBookmarksScreen() {
+        val panel = screen("Bookmarks")
+        panel.addView(rowButton("Save current page", currentUrl.ifBlank { "No page loaded" }) { bookmarkCurrent(); showBookmarksScreen() })
+        val items = store.bookmarks()
+        if (items.isEmpty()) panel.addView(emptyText("No bookmarks saved yet"))
+        items.forEach { url -> panel.addView(rowButton(shortUrl(url), url) { load(url) }) }
+        showPanel(panel)
+    }
+
+    private fun showHistoryScreen() {
+        val panel = screen("History")
+        val items = store.history()
+        if (items.isEmpty()) panel.addView(emptyText("No browsing history yet"))
+        items.forEach { url -> panel.addView(rowButton(shortUrl(url), url) { load(url) }) }
+        showPanel(panel)
+    }
+
+    private fun showExtensionsScreen() {
+        val panel = screen("Extensions")
+        panel.addView(emptyText("Popular Firefox Add-ons. Install opens the Firefox Add-ons API package when GeckoView allows it, otherwise the add-on page opens."))
+        ExtensionCatalog.popular.forEach { item ->
+            panel.addView(rowButton(item.name, item.summary) { installExtension(item) })
+        }
+        showPanel(panel)
+    }
+
+    private fun screen(title: String): LinearLayout {
+        val theme = AppTheme.byId(store.themeId)
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(18))
+            setBackgroundColor(theme.background)
+            addView(TextView(this@MainActivity).apply {
+                text = title
+                textSize = 22f
+                setTextColor(theme.text)
+                typeface = Typeface.DEFAULT_BOLD
+            })
+        }
+    }
+
+    private fun showPanel(panel: LinearLayout) {
+        closePanel()
+        val scroll = ScrollView(this).apply {
+            setBackgroundColor(AppTheme.byId(store.themeId).background)
+            addView(panel)
+            alpha = 0f
+            translationY = dp(24).toFloat()
+        }
+        panelView = scroll
+        contentFrame.addView(scroll, FrameLayout.LayoutParams(-1, -1))
+        scroll.animate().alpha(1f).translationY(0f).setDuration(180).setInterpolator(DecelerateInterpolator()).start()
+        applyAppearance()
+    }
+
+    private fun closePanel() {
+        panelView?.let { contentFrame.removeView(it) }
+        panelView = null
+    }
+
+    private fun sectionTitle(textValue: String): TextView {
+        val theme = AppTheme.byId(store.themeId)
+        return TextView(this).apply {
+            text = textValue
+            textSize = 13f
+            setTextColor(theme.muted)
+            typeface = Typeface.DEFAULT_BOLD
+            setPadding(0, dp(20), 0, dp(8))
+        }
+    }
+
+    private fun rowButton(title: String, subtitle: String, action: () -> Unit): LinearLayout {
+        val theme = AppTheme.byId(store.themeId)
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(14))
+            background = rounded(theme.elevated, dp(14))
+            setOnClickListener { action() }
+            addView(TextView(this@MainActivity).apply { text = title; textSize = 16f; setTextColor(theme.text) })
+            addView(TextView(this@MainActivity).apply { text = subtitle; textSize = 12f; setTextColor(theme.muted) })
+            layoutParams = LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(8) }
+        }
+    }
+
+    private fun emptyText(value: String): TextView {
+        val theme = AppTheme.byId(store.themeId)
+        return TextView(this).apply {
+            text = value
+            textSize = 14f
+            setTextColor(theme.muted)
+            setPadding(0, dp(12), 0, dp(12))
+        }
     }
 
     private fun installExtension(item: ExtensionItem) {
@@ -246,17 +373,6 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun showUrlList(title: String, urls: List<String>) {
-        if (urls.isEmpty()) {
-            toast("No $title yet")
-            return
-        }
-        AlertDialog.Builder(this)
-            .setTitle(title)
-            .setItems(urls.toTypedArray()) { _, index -> load(urls[index]) }
-            .show()
-    }
-
     private fun loadFromInput(raw: String) {
         val value = raw.trim()
         if (value.isEmpty()) return
@@ -269,6 +385,7 @@ class MainActivity : Activity() {
     }
 
     private fun load(url: String) {
+        closePanel()
         currentUrl = url
         addressBar.setText(url)
         progress.progress = 35
@@ -284,7 +401,10 @@ class MainActivity : Activity() {
     }
 
     private fun bookmarkCurrent() {
-        if (currentUrl.isBlank()) return
+        if (currentUrl.isBlank()) {
+            toast("No page loaded")
+            return
+        }
         store.addBookmark(currentUrl)
         toast("Bookmark saved")
     }
@@ -298,6 +418,7 @@ class MainActivity : Activity() {
     }
 
     private fun copyCurrent() {
+        if (currentUrl.isBlank()) return
         val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         clipboard.setPrimaryClip(ClipData.newPlainText("Kairo URL", currentUrl))
         toast("Link copied")
@@ -317,24 +438,26 @@ class MainActivity : Activity() {
         bottomBar.setBackgroundColor(theme.surface)
         addressBar.setTextColor(theme.text)
         addressBar.setHintTextColor(theme.muted)
-        addressBar.typeface = font
+        addressBar.background = rounded(theme.elevated, dp(24))
         applyFont(root, font)
-        tintButtons(root, theme)
+        tintNavText(root, theme)
     }
 
     private fun applyFont(view: View, typeface: Typeface) {
         if (view is TextView) view.typeface = typeface
-        if (view is ViewGroup) {
-            for (i in 0 until view.childCount) applyFont(view.getChildAt(i), typeface)
-        }
+        if (view is ViewGroup) for (i in 0 until view.childCount) applyFont(view.getChildAt(i), typeface)
     }
 
-    private fun tintButtons(view: View, theme: AppTheme) {
+    private fun tintNavText(view: View, theme: AppTheme) {
+        if (view is TextView && view.parent == toolbar || view is TextView && view.parent == bottomBar) {
+            view.setTextColor(theme.text)
+            view.background = rounded(theme.elevated, dp(18))
+        }
         if (view is Button) {
             view.setTextColor(theme.text)
             view.background = rounded(theme.elevated, dp(18))
         }
-        if (view is ViewGroup) for (i in 0 until view.childCount) tintButtons(view.getChildAt(i), theme)
+        if (view is ViewGroup) for (i in 0 until view.childCount) tintNavText(view.getChildAt(i), theme)
     }
 
     private fun iconButton(label: String, action: () -> Unit): TextView = TextView(this).apply {
@@ -367,6 +490,8 @@ class MainActivity : Activity() {
         bottomBar.alpha = 0.55f
         bottomBar.animate().alpha(1f).setDuration(220).start()
     }
+
+    private fun shortUrl(url: String): String = url.removePrefix("https://").removePrefix("http://").take(48)
 
     private fun toast(message: String) = Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
 
